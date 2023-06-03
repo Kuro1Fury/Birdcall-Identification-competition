@@ -13,10 +13,12 @@ import torch.nn.functional as F
 class Hparams():
     def __init__(self):
         #resnet50 resnext50_32x4d mobilenet_v2 efficientnet-b3  densenet121 densenet169 
-        self.models_name = ['resnet50','efficientnet-b0','efficientnet-b0','efficientnet-b0','efficientnet-b0','resnet50']
-        #self.chk = ['resnet50_78_0.830_0.666.pt','enet0_101_0.771_0.692.pt','enet0_45_0.558.pt','enet0_133_0.707_0.691.pt',
+        # self.models_name = ['resnet50','efficientnet-b0','efficientnet-b0','efficientnet-b0','efficientnet-b0','resnet50']
+        # self.chk = ['resnet50_78_0.830_0.666.pt','enet0_101_0.771_0.692.pt','enet0_45_0.558.pt','enet0_133_0.707_0.691.pt',
         #            '150enet0_116_0.707_0.703.pt','2.5resnet50_113_0.715_0.693.pt']
-        self.chk = ['']
+        self.models_name = ['resnet50']
+        self.chk = ['resnet50_78_0.830_0.666.pt']
+        # self.chk = ['']
         self.count_bird = [265,265,265,265,150,265] #count birds|Количество птиц, 264 - all, 265 + nocall
         self.len_chack = [448,448,448,448,448,224] # The duration of the training files 448 = 5 second|Длительность обучающих файлов
         
@@ -31,7 +33,7 @@ class Hparams():
         self.border = 0.5
         self.save_interval = 20 #Model saving interval
         # Список из count_bird птиц по пополуярности
-        self.bird_count = pd.read_csv('bird_count.csv').ebird_code.to_numpy()        
+        self.bird_count = pd.read_csv('bird_count.csv').ebird_code.to_numpy()
         self.BIRD_CODE = {b:i for i,b in enumerate(self.bird_count)}
         self.INV_BIRD_CODE = {v: k for k, v in self.BIRD_CODE.items()}
         self.bird_count = self.bird_count[:self.count_bird[0]]
@@ -59,7 +61,7 @@ def get_melspectr(train_path):
     y, _ = librosa.load(train_path,sr=hp.sr,mono=True,res_type="kaiser_fast")
 
     # Create melspectrogram | Создать Мелспектрограмму
-    spectr = librosa.feature.melspectrogram(y, sr=hp.sr, n_mels=hp.n_mels, n_fft=hp.n_fft, hop_length = hp.hop_length, win_length = hp.win_length, fmin = 300)
+    spectr = librosa.feature.melspectrogram(y=y, sr=hp.sr, n_mels=hp.n_mels, n_fft=hp.n_fft, hop_length = hp.hop_length, win_length = hp.win_length, fmin = 300)
     return spectr.astype(np.float16)
 
 
@@ -166,6 +168,6 @@ def get_model(model_name,chk,count_bird):
                 f1_scores   = ckpt['f1_scores']
             if 'b_scores' in ckpt:
                 b_scores   = ckpt['b_scores']
-            print('Чекпоинт загружен: Эпоха %d Число обнаруженых птиц %d Score %.3f' % (epochs,best_bird_count,best_score))
+            print('Parameters: Epoch %d Birds found %d Score %.3f' % (epochs,best_bird_count,best_score))
     return model,optimizer, epochs, train_accuracy, all_loss, best_bird_count, best_score, t_scores, f1_scores, b_scores
     

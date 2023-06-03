@@ -1,0 +1,8 @@
+mel/
+train/
+Birdcall-Identification-competition.7z
+log/
+train_otherdata/
+
+/log/*
+!/log/img/

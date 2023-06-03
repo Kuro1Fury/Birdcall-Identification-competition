@@ -16,13 +16,13 @@ from scipy.stats.mstats import gmean
         
 def preprocess():
     os.makedirs(hp.mel_folder, exist_ok=True)
-    dataset = glob.glob(os.path.join("./short/", '**/*.wav'), recursive=True)
+    dataset = glob.glob(os.path.join("./train/", '**/*.mp3'), recursive=True)
     with open('meta.csv', 'w', encoding="utf-8") as output:
         output.write("file,bird\n")
         for train_path in tqdm(dataset):
             # Only the name of the file | Только название файла
             wav_name = os.path.basename(train_path) 
-            dirname = train_path.split("\\")[1]
+            dirname = os.path.basename(os.path.dirname(train_path))
             
             # Create melspectrogram | Получить спектр
             mel = get_melspectr(train_path)
@@ -41,53 +41,53 @@ def preprocess():
     meta = pd.read_csv('meta.csv')
     meta = meta.merge(secondary_labels[["filename",'labels_bg']], how = 'left', left_on='file', right_on='filename',copy=False)
     meta[["file","bird",'labels_bg']].to_csv('meta.csv', index=False)
-    print('Training dataset created / Тренировочный датасет создан')
+    print('Training dataset created')
     
 class MelDataset(Dataset):
     def __init__(self, bird_list, hp):
-        # Initialize the list of melspectrograms | Инициализировать список мелспектрограмм
+        # Initialize the list of melspectrograms
         self.bird_list = bird_list
         self.hp = hp
-        self.noise = pd.read_csv("nocall.csv")
-        self.stop_border = 0.3 # Probability of stopping mixing | Вероятность прервать смешивание
-        self.level_noise = 0.05 # level noise | Уровень шума
-        self.div_coef = 100 # signal amplification during mixing | Усиления сигнала при смешивании
+        # self.noise = pd.read_csv("nocall.csv")
+        self.stop_border = 0.3 # Probability of stopping mixing
+        self.level_noise = 0.05 # level noise
+        self.div_coef = 100 # signal amplification during mixing
             
     def __len__(self):
         return len(self.bird_list)
 
     def __getitem__(self, idx):
-        idx2 = random.randint(0, len(self.bird_list)-1) # Second file | Второй файл
-        idx3 = random.randint(0, len(self.bird_list)-1) # Third file | Третий файл
+        idx2 = random.randint(0, len(self.bird_list)-1) # Second file
+        idx3 = random.randint(0, len(self.bird_list)-1) # Third file
 
         y = torch.zeros(self.hp.count_bird[0])
         birds, background = [],[]
         
-        # Length of the segment | Длительность отрезка
+        # Length of the segment
         self.len_chack = random.randint(self.hp.len_chack[0]-48, self.hp.len_chack[0]+52)
         #self.len_chack = self.hp.len_chack[0]
         
         images = np.zeros((self.hp.n_mels, self.len_chack)).astype(np.float32)            
         for i,idy in enumerate([idx,idx2,idx3]):
-            # Choosing a record with a bird | Выбираем запись с птицей
+            # Choosing a record with a bird
             sample = self.bird_list.loc[idy, :]
-            # Uploading a record with a bird | Загружаем запись с птицей
+            # Uploading a record with a bird
             mel = torch.load(self.hp.mel_folder+sample.file.replace(".mp3",".amp")).numpy()
 
-            # Birds in the file | Птицы в файле
+            # Birds in the file
             labels_bird = sample.bird.split()
             for bird in labels_bird:
                 if not bird in birds and bird != 264:
                     birds.append(self.hp.BIRD_CODE[bird])
             
-            # Birds in the background | Птицы на фоне     
+            # Birds in the background
             if sample.labels_bg:
                 labels_bg = sample.labels_bg.split()
                 for bg in labels_bg:
                     if not bg in background:
                         background.append(self.hp.BIRD_CODE[bg])
             
-            # Select the piece that contains the sound | Выбираем кусок в котором содержится звук
+            # Select the piece that contains the sound
             if mel.shape[1]>self.len_chack: 
                 start = random.randint(0, mel.shape[1] - self.len_chack - 1)
                 mel = mel[:, start : start + random.randint(self.len_chack-48, self.len_chack)]
@@ -97,21 +97,21 @@ class MelDataset(Dataset):
             
             mel = np.concatenate((mel,np.zeros((self.hp.n_mels,self.len_chack-mel.shape[1]))), axis=1)
             
-            # Change the contrast | Изменить контрастность
+            # Change the contrast
             mel = random_power(mel, power = 3, c= 0.5)
             #mel = librosa.power_to_db(mel.astype(np.float32), ref=np.max)
             #mel = (mel+80)/80
             
-            # Mix the signal | Смешать сигнал
+            # Mix the signal
             images = images + mel*(random.random() * self.div_coef + 1)
             
-            # Abort accidentally | Случайно прервать 
+            # Abort accidentally
             if random.random()<self.stop_border:
                 break
         
-        # Add a different sound without birds | Добавить другой звук без птиц
-        idy = random.randint(0, len(self.noise)-1)
-        sample = self.noise.loc[idy, :]
+        # Add a different sound without birds
+        # idy = random.randint(0, len(self.noise)-1)
+        # sample = self.noise.loc[idy, :]
         mel = torch.load('./mel/'+sample.file.replace(".wav",".amp")).numpy()
         mel = np.concatenate((np.zeros((self.hp.n_mels,self.len_chack)),mel), axis=1)
         mel = np.concatenate((mel,np.zeros((self.hp.n_mels,self.len_chack))), axis=1)
@@ -122,29 +122,29 @@ class MelDataset(Dataset):
         #mel = (mel+80)/80
         images = images + mel/(mel.max()+0.0000001)*(random.random()*1+0.5)*images.max()
         
-        # In db and normalize | В Дб и нормализовать
+        # In db and normalize
         images = librosa.power_to_db(images.astype(np.float32), ref=np.max)
         images = (images+80)/80
         
-        # Add noise | Добавить шум
-        # Add white noise | Добавить белый шум            
+        # Add noise
+        # Add white noise
         if random.random()<0.9:
             images = images + (np.random.sample((self.hp.n_mels,self.len_chack)).astype(np.float32)+9) * images.mean() * self.level_noise * (np.random.sample() + 0.3)
         
-        # Add pink noise | Добавить розовый шум
+        # Add pink noise
         if random.random()<0.9:
             r = random.randint(1,self.hp.n_mels)
             pink_noise = np.array([np.concatenate((1 - np.arange(r)/r,np.zeros(self.hp.n_mels-r)))]).T
             images = images + (np.random.sample((self.hp.n_mels,self.len_chack)).astype(np.float32)+9) * 2  * images.mean() * self.level_noise * (np.random.sample() + 0.3)
         
-        # Add bandpass noise | Добавить полосовой шум
+        # Add bandpass noise
         if random.random()<0.9:
             a = random.randint(0, self.hp.n_mels//2)
             b = random.randint(a+20, self.hp.n_mels)
             images[a:b,:] = images[a:b,:] + (np.random.sample((b-a,self.len_chack)).astype(np.float32)+9) * 0.05 * images.mean() * self.level_noise  * (np.random.sample() + 0.3)
         
         
-        # Lower the upper frequencies | Понизить верхние частоты
+        # Lower the upper frequencies
         if random.random()<0.5:
             images = images - images.min()
             r = random.randint(self.hp.n_mels//2,self.hp.n_mels)
@@ -153,14 +153,14 @@ class MelDataset(Dataset):
             images = images*pink_noise
             images = images/images.max()
         
-        # Change the contrast | Изменить контрастность
+        # Change the contrast
         images = random_power(images, power = 2, c= 0.7)
         
         # Expand to 3 channels | Расширить до 3 каналов
         #images = torch.from_numpy(np.stack([images, images, images])).float()
         images = mono_to_color(images,hp.len_chack[0])
 
-        # Draw pictures | Рисуем графики
+        # Draw pictures
         if random.random()<0.0001:
             img = images.numpy()
             img = img - img.min()
@@ -169,11 +169,11 @@ class MelDataset(Dataset):
             imgplot = plt.imshow(img)
             plt.savefig('log/img/'+("_".join(self.hp.INV_BIRD_CODE[x] for x in birds))+'_'+sample.file+'.png')    
         
-        # If there are no birds, then the background | Усли нет птиц, значит фон
+        # If there are no birds, then the background
         if not birds:
             birds.append(264)        
         
-        # The background is 0.3, and the marked bird is 1 | Фон это 0.3, а помеченая птица 1
+        # The background is 0.3, and the marked bird is 1
         for bird in background:
             if bird < len(y):
                 y[bird]=0.3
@@ -190,7 +190,8 @@ def train(model,optimizer,epochs,train_accuracy,all_loss,best_bird_count,best_sc
     os.makedirs(save_dir, exist_ok=True)
     
     # Upload a list of training files | Загрузить список тренировочных mel meta.csv
-    bird_list = pd.read_csv("meta_all.csv")
+    # bird_list = pd.read_csv("meta_all.csv")
+    bird_list = pd.read_csv("filtered_meta_amp.csv")
     bird_list = bird_list[bird_list.bird.isin(hp.bird_count)].reset_index(drop=True)
     bird_list = bird_list.fillna(0)
     train_count = len(bird_list)
@@ -201,10 +202,11 @@ def train(model,optimizer,epochs,train_accuracy,all_loss,best_bird_count,best_sc
     prediction_dict = {}
     start = time.time()
     model.zero_grad() 
-    for epoch in range(epochs, 1000):
+    for epoch in range(epochs, 100):
         step = 0
         model.train()
         start_time = time.time()
+        print("Epoch: ", epoch)
         for (mel, background) in train_loader:
             step+=1
             # Consider the network output | Считаем выход сети
@@ -227,7 +229,7 @@ def train(model,optimizer,epochs,train_accuracy,all_loss,best_bird_count,best_sc
             # Every hp.save_interval steps we display statistics | Каждые 100 шагов выводим статистику
             if not step % hp.save_interval:
                 print(str(epoch)+' '+str(step)+'/'+str(train_count//hp.batch_size), 
-                        "время: %.3f loss: %.3f accuracy: %.3f " % (
+                        "time: %.3f loss: %.3f accuracy: %.3f " % (
                         (time.time()-start_time)/hp.save_interval,
                         np.mean(all_loss[-hp.save_interval:])*10,
                         np.mean(train_accuracy[-hp.save_interval:])))
@@ -240,10 +242,13 @@ def train(model,optimizer,epochs,train_accuracy,all_loss,best_bird_count,best_sc
                 
                 model.train()
                 
-                # Draw graphs | Рисуем графики
+                # Draw graphs
                 plt.clf()
-                plt.plot(gaussian_filter1d(train_accuracy[80:], 20))
-                plt.plot(gaussian_filter1d(all_loss[80:], 20)*10)
+                plt.plot(gaussian_filter1d(train_accuracy[80:], 20), label='Train Accuracy')
+                plt.plot(gaussian_filter1d(all_loss[80:], 20)*10, label='Train Loss x 10')
+                plt.xlabel('Training Steps')  # Add x-axis label
+                plt.ylabel('Value')  # Add y-axis label
+                plt.legend()
                 plt.savefig('log/all_loss.png')        
                 plt.clf()
                 plt.plot(t_scores)
@@ -273,7 +278,7 @@ def train(model,optimizer,epochs,train_accuracy,all_loss,best_bird_count,best_sc
                         'f1_scores': f1_scores,
                         'b_scores': b_scores,                        
                     }, 'log/enet_%d_%.3f_%.3f.pt' % (bird_count,bird_accuracy,test_accuracy))
-                    print("Модель сохранена")
+                    print("Model saved")
                 start_time = time.time()
 
 
@@ -283,7 +288,7 @@ def generate(models, epochs, border,log_stat):
 
     # Uploading a list of files for testing | Загружаем список файлов для тестирования
     TEST_FOLDER = f'{BASE_TEST_DIR}/test_audio/'
-    test_info = pd.read_csv(f'{BASE_TEST_DIR}/test2.csv')
+    test_info = pd.read_csv(f'{BASE_TEST_DIR}/test.csv')
     
     # Looking for all unique audio recordings | Ищем все уникальные аудиозаписи
     unique_audio_id = test_info.audio_id.unique() 
@@ -537,7 +542,7 @@ if __name__ == "__main__":
     BASE_TEST_DIR = '.'
     parser = argparse.ArgumentParser()
     parser.add_argument("-r", "--run", default='train', help=\
-        "Enter the function you want to run | Введите функцию, которую надо запустить (preprocess, train, generate)")
+        "Enter the function you want to run (preprocess, train, generate)")
     args = parser.parse_args()
     
     if args.run == 'preprocess' or args.run == 'p':
@@ -546,6 +551,10 @@ if __name__ == "__main__":
         # to create a model | создать model
         all_model = []
         for i in range(len(hp.models_name)):
+            print(i)
+            print(hp.models_name[i])
+            print(hp.chk[i])
+            print(hp.count_bird[i])
             model,optimizer, epochs, train_accuracy, all_loss, best_bird_count, best_score, t_scores, f1_scores, b_scores = get_model(hp.models_name[i],hp.chk[i],hp.count_bird[i])
             all_model.append(model)
         if args.run == 'train' or args.run == 't':
@@ -556,4 +565,4 @@ if __name__ == "__main__":
             for i in [ 0.4, 0.5, 0.6]:
                 print(i, generate(all_model, epochs, i, True))
         else:
-            print("Enter the correct function | Введите корректную функцию (preprocess, train, generate)")  
+            print("Enter the correct function (preprocess, train, generate)")
